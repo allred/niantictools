@@ -9,6 +9,8 @@
 #
 # assumes the local mail delivery system will deliver the email report properly
 # also prints the report to stdout
+# TODO:
+# - factor in "Your Link has been destroyed by ..." notifications
 
 use strict;
 use warnings;
@@ -39,11 +41,13 @@ my $messages = $client_imap->search({
 my $summaries = $client_imap->get_summaries($messages);
 my $bodies = $client_imap->get_parts_bodies($messages, ['1']);
 my %destroyers;
-my $count_destroyed = 0;
+my $count_items_destroyed = 0;
+my $count_links_destroyed = 0;
 my $count_emails = scalar @$summaries;
 my $count_processed = 0;
 foreach my $summary (@$summaries) {
   my $items_destroyed_this_summary = 0;
+  my $links_destroyed_this_summary = 0;
 
   # get the text part of the email
 
@@ -57,24 +61,30 @@ foreach my $summary (@$summaries) {
     my $num_items_destroyed = $1;
     $items_destroyed_this_summary += $num_items_destroyed;  
   }
+  while ($body_text =~ /Your Link has been destroyed/gs) {
+    $links_destroyed_this_summary++;
+  }
   
   # subject
 
   my $subject = $summary->subject;
   $subject =~ qr/by (.*)$/;
   my $destroyer = $1;
-  $destroyers{$destroyer} += $items_destroyed_this_summary;
+  $destroyers{$destroyer}{items} += $items_destroyed_this_summary;
+  $destroyers{$destroyer}{links} += $links_destroyed_this_summary;
 
-  $count_destroyed += $items_destroyed_this_summary;
+  $count_items_destroyed += $items_destroyed_this_summary;
+  $count_links_destroyed += $links_destroyed_this_summary;
   $count_processed++;
-  print STDERR "emails processed: $count_processed/$count_emails\n";
+  print STDERR "emails processed: $count_processed/$count_emails items: $count_items_destroyed links: $count_links_destroyed\n";
 }
 my $count_destroyers = scalar keys %destroyers;
 my $text_report = '';
-$text_report .= "[total items destroyed: $count_destroyed]\n";
+$text_report .= "[total items destroyed: $count_items_destroyed]\n";
+$text_report .= "[total links destroyed: $count_links_destroyed]\n";
 $text_report .= "[total destroyers: $count_destroyers]\n";
-foreach my $destroyer (sort { $destroyers{$b} <=> $destroyers{$a} } keys %destroyers) {
-  $text_report .= "$destroyer $destroyers{$destroyer}\n";
+foreach my $destroyer (sort { $destroyers{$b}{items} <=> $destroyers{$a}{items} } keys %destroyers) {
+  $text_report .= "$destroyer items: $destroyers{$destroyer}{items} links: $destroyers{$destroyer}{links}\n";
 }
 print $text_report;
 
@@ -83,7 +93,7 @@ print $text_report;
 my $mimelite = MIME::Lite->new(
   Data => $text_report,
   From => $mailfrom,
-  Subject => "Destroyers Report: $count_destroyed items, $count_destroyers destroyers",
+  Subject => "Destroyers Report: $count_items_destroyed items, $count_links_destroyed links, $count_destroyers destroyers",
   To => $mailto,
   Type => 'text',
 );
