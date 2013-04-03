@@ -47,7 +47,13 @@ my %destroyers;
 my $total_resos_destroyed = 0;
 my $total_links_destroyed = 0;
 my $total_mods_destroyed = 0;
-my $total_emails = scalar @$summaries;
+my $total_emails = 0;
+if (defined $summaries && ref $summaries eq 'ARRAY') {
+  $total_emails = scalar @$summaries;
+}
+else {
+  die "no Niantic emails found";
+}
 my $count_processed = 0;
 foreach my $summary (@$summaries) {
   my $resos_destroyed_this_summary = 0;
