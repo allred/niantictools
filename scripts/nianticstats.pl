@@ -1,17 +1,18 @@
 #!/usr/bin/perl
 # queries Niantic messages from gmail via IMAP, compiles stats, emails result
-#
-# instructions for install/usage:
-# - sudo cpan install MIME::Lite
-# - sudo cpan install Net::IMAP::Client
-# - chmod u+x nianticstats.pl
-# - ./nianticstats.pl youremail@gmail.com yourpassword
-#
 # assumes the local mail delivery system will deliver the email report properly
 # also prints the report to stdout
 # TODO:
 # - optimize speed
 # - justify table
+
+my $usage = <<'EOF';
+instructions for install/usage:
+ - sudo cpan install MIME::Lite
+ - sudo cpan install Net::IMAP::Client
+ - chmod u+x nianticstats.pl
+ - ./nianticstats.pl youremail@gmail.com yourpassword
+EOF
 
 use strict;
 use warnings;
@@ -19,13 +20,15 @@ use Data::Dumper;
 use MIME::Lite;
 use Net::IMAP::Client;
 
-my $usage = <<'EOF';
-EOF
-
 my $user_gmail = shift @ARGV;
 my $pass_gmail = shift @ARGV;
 my $mailto = $user_gmail;
 my $mailfrom = $user_gmail;
+unless ($user_gmail && $pass_gmail) {
+  die $usage;
+}
+
+# search for Niantic emails
 
 my $client_imap = Net::IMAP::Client->new(
   server => 'imap.gmail.com',
@@ -41,10 +44,10 @@ my $messages = $client_imap->search({
 });
 my $summaries = $client_imap->get_summaries($messages);
 my %destroyers;
-my $count_resos_destroyed = 0;
-my $count_links_destroyed = 0;
-my $count_mods_destroyed = 0;
-my $count_emails = scalar @$summaries;
+my $total_resos_destroyed = 0;
+my $total_links_destroyed = 0;
+my $total_mods_destroyed = 0;
+my $total_emails = scalar @$summaries;
 my $count_processed = 0;
 foreach my $summary (@$summaries) {
   my $resos_destroyed_this_summary = 0;
@@ -85,18 +88,18 @@ foreach my $summary (@$summaries) {
   $destroyers{$destroyer}{links} += $links_destroyed_this_summary;
   $destroyers{$destroyer}{mods} += $mods_destroyed_this_summary;
 
-  $count_resos_destroyed += $resos_destroyed_this_summary;
-  $count_links_destroyed += $links_destroyed_this_summary;
-  $count_mods_destroyed += $mods_destroyed_this_summary;
+  $total_resos_destroyed += $resos_destroyed_this_summary;
+  $total_links_destroyed += $links_destroyed_this_summary;
+  $total_mods_destroyed += $mods_destroyed_this_summary;
   $count_processed++;
-  print STDERR "emails processed: $count_processed/$count_emails resos: $count_resos_destroyed links: $count_links_destroyed mods: $count_mods_destroyed\n";
+  print STDERR "emails processed: $count_processed/$total_emails resos: $total_resos_destroyed links: $total_links_destroyed mods: $total_mods_destroyed\n";
 }
-my $count_destroyers = scalar keys %destroyers;
+my $total_destroyers = scalar keys %destroyers;
 my $text_report = '';
-$text_report .= "[total destroyers: $count_destroyers]\n";
-$text_report .= "[total resos destroyed: $count_resos_destroyed]\n";
-$text_report .= "[total links destroyed: $count_links_destroyed]\n";
-$text_report .= "[total mods destroyed: $count_mods_destroyed]\n";
+$text_report .= "[total destroyers: $total_destroyers]\n";
+$text_report .= "[total resos destroyed: $total_resos_destroyed]\n";
+$text_report .= "[total links destroyed: $total_links_destroyed]\n";
+$text_report .= "[total mods destroyed: $total_mods_destroyed]\n";
 $text_report .= "----------------------------\n";
 $text_report .= "[DESTROYER RESOS LINKS MODS]\n";
 $text_report .= "----------------------------\n";
@@ -110,7 +113,7 @@ print $text_report;
 my $mimelite = MIME::Lite->new(
   Data => $text_report,
   From => $mailfrom,
-  Subject => "Destroyers Report: $count_destroyers destroyers, $count_resos_destroyed resos, $count_links_destroyed links, $count_mods_destroyed mods",
+  Subject => "Destroyers Report: $total_destroyers destroyers, $total_resos_destroyed resos, $total_links_destroyed links, $total_mods_destroyed mods",
   To => $mailto,
   Type => 'text',
 );
