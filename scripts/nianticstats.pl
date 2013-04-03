@@ -79,7 +79,7 @@ foreach my $summary (@$summaries) {
     $mods_destroyed_this_summary += $1;
   }
   
-  # subject
+  # grab subject, agent id is the key for destroyer stats
 
   my $subject = $summary->subject;
   $subject =~ qr/by (.*)$/;
@@ -95,14 +95,17 @@ foreach my $summary (@$summaries) {
   print STDERR "emails processed: $count_processed/$total_emails resos: $total_resos_destroyed links: $total_links_destroyed mods: $total_mods_destroyed\n";
 }
 my $total_destroyers = scalar keys %destroyers;
-my $text_report = '';
-$text_report .= "[total destroyers: $total_destroyers]\n";
-$text_report .= "[total resos destroyed: $total_resos_destroyed]\n";
-$text_report .= "[total links destroyed: $total_links_destroyed]\n";
-$text_report .= "[total mods destroyed: $total_mods_destroyed]\n";
-$text_report .= "----------------------------\n";
-$text_report .= "[DESTROYER RESOS LINKS MODS]\n";
-$text_report .= "----------------------------\n";
+
+my $text_report = <<"EOF";
+[total destroyers: $total_destroyers]
+[total resos destroyed: $total_resos_destroyed]
+[total links destroyed: $total_links_destroyed]
+[total mods destroyed: $total_mods_destroyed]
+----------------------------
+[DESTROYER RESOS LINKS MODS]
+----------------------------
+EOF
+
 foreach my $destroyer (sort { $destroyers{$b}{resos} <=> $destroyers{$a}{resos} } keys %destroyers) {
   $text_report .= "$destroyer $destroyers{$destroyer}{resos} $destroyers{$destroyer}{links} $destroyers{$destroyer}{mods}\n";
 }
