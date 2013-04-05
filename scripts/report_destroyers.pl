@@ -7,7 +7,7 @@
 # - optimize speed
 # - justify table
 
-my $usage = <<'EOF';
+my $usage = <<'EOS';
 
 instructions for install/usage:
  - sudo cpan install Getopt::Long MIME::Lite Net::IMAP::Client
@@ -17,10 +17,10 @@ instructions for install/usage:
 command line options:
  --help
  --imapdir   : search a user-defined label/folder instead of All Mail 
- --pass      : suppy password on command line, can be seen in ps output!
+ --pass      : supply password, warning, can be seen in ps output!
  --sendemail : sends the report via smtp to the gmail user specified
  --user
-EOF
+EOS
 my $epoch_start = time;
 
 use strict;
@@ -125,7 +125,7 @@ foreach my $summary (@$summaries) {
 }
 my $total_destroyers = scalar keys %destroyers;
 
-my $text_report = <<"EOF";
+my $text_report = <<"EOS";
 [total destroyers: $total_destroyers]
 [total resos destroyed: $total_resos_destroyed]
 [total links destroyed: $total_links_destroyed]
@@ -133,7 +133,7 @@ my $text_report = <<"EOF";
 -----------------------------------
 [DESTROYER RESOS LINKS MODS LATEST]
 -----------------------------------
-EOF
+EOS
 
 foreach my $destroyer (sort { $destroyers{$b}{resos} <=> $destroyers{$a}{resos} } keys %destroyers) {
   $text_report .= "$destroyer $destroyers{$destroyer}{resos} $destroyers{$destroyer}{links} $destroyers{$destroyer}{mods} ($destroyers{$destroyer}{date_last_notification})\n";
