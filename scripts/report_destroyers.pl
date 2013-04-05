@@ -12,14 +12,16 @@ my $usage = <<'EOF';
 instructions for install/usage:
  - sudo cpan install Getopt::Long MIME::Lite Net::IMAP::Client
  - chmod u+x report_destroyers.pl
- - ./report_destroyers.pl -user youremail@gmail.com -pass yourpassword
+ - GMAILPASS=yourpassword ./report_destroyers.pl --user youremail@gmail.com
 
 command line options:
  --help
- --pass
+ --imapdir   : search a user-defined label/folder instead of All Mail 
+ --pass      : suppy password on command line, can be seen in ps output!
+ --sendemail : sends the report via smtp to the gmail user specified
  --user
- --imapdir : search a user-defined label/folder instead of All Mail 
 EOF
+my $epoch_start = time;
 
 use strict;
 use warnings;
@@ -33,6 +35,7 @@ GetOptions(\%args, qw(
   help
   imapdir=s
   pass=s
+  sendemail
   user=s
 ));
 
@@ -70,7 +73,7 @@ if (defined $summaries && ref $summaries eq 'ARRAY') {
   $total_emails = scalar @$summaries;
 }
 else {
-  die "no Niantic emails found";
+  die "no Niantic emails found in $imapdir";
 }
 my $count_processed = 0;
 foreach my $summary (@$summaries) {
@@ -111,6 +114,8 @@ foreach my $summary (@$summaries) {
   $destroyers{$destroyer}{resos} += $resos_destroyed_this_summary;
   $destroyers{$destroyer}{links} += $links_destroyed_this_summary;
   $destroyers{$destroyer}{mods} += $mods_destroyed_this_summary;
+  $destroyers{$destroyer}{date_first_notification} ||= $summary->date;
+  $destroyers{$destroyer}{date_last_notification} = $summary->date;
 
   $total_resos_destroyed += $resos_destroyed_this_summary;
   $total_links_destroyed += $links_destroyed_this_summary;
@@ -125,14 +130,18 @@ my $text_report = <<"EOF";
 [total resos destroyed: $total_resos_destroyed]
 [total links destroyed: $total_links_destroyed]
 [total mods destroyed: $total_mods_destroyed]
-----------------------------
-[DESTROYER RESOS LINKS MODS]
-----------------------------
+-----------------------------------
+[DESTROYER RESOS LINKS MODS LATEST]
+-----------------------------------
 EOF
 
 foreach my $destroyer (sort { $destroyers{$b}{resos} <=> $destroyers{$a}{resos} } keys %destroyers) {
-  $text_report .= "$destroyer $destroyers{$destroyer}{resos} $destroyers{$destroyer}{links} $destroyers{$destroyer}{mods}\n";
+  $text_report .= "$destroyer $destroyers{$destroyer}{resos} $destroyers{$destroyer}{links} $destroyers{$destroyer}{mods} ($destroyers{$destroyer}{date_last_notification})\n";
 }
+my $epoch_end = time;
+my $secs_report_duration = $epoch_end - $epoch_start;
+my $mins_report_duration = $secs_report_duration / 60;
+print STDERR "report generated in ${mins_report_duration}m (${secs_report_duration}s)\n";
 print $text_report;
 
 # send mail
@@ -144,4 +153,6 @@ my $mimelite = MIME::Lite->new(
   To => $mailto,
   Type => 'text',
 );
-$mimelite->send;
+if ($args{sendemail}) {
+  $mimelite->send;
+}
