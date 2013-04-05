@@ -1,1 +1,3 @@
-some random stuff
+scripts
+=======
+* report_destroyers.pl : queries inbox for Niantic emails and compiles report

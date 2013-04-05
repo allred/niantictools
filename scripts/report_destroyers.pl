@@ -1,4 +1,5 @@
 #!/usr/bin/perl
+# compiles stats on destroyed items
 # queries Niantic messages from gmail via IMAP, compiles stats, emails result
 # assumes the local mail delivery system will deliver the email report properly
 # also prints the report to stdout
@@ -7,26 +8,42 @@
 # - justify table
 
 my $usage = <<'EOF';
+
 instructions for install/usage:
- - sudo cpan install MIME::Lite
- - sudo cpan install Net::IMAP::Client
- - chmod u+x nianticstats.pl
- - ./nianticstats.pl youremail@gmail.com yourpassword
+ - sudo cpan install Getopt::Long MIME::Lite Net::IMAP::Client
+ - chmod u+x report_destroyers.pl
+ - ./report_destroyers.pl -user youremail@gmail.com -pass yourpassword
+
+command line options:
+ --help
+ --pass
+ --user
+ --imapdir : search a user-defined label/folder instead of All Mail 
 EOF
 
 use strict;
 use warnings;
 use Data::Dumper;
+use Getopt::Long;
 use MIME::Lite;
 use Net::IMAP::Client;
 
-my $user_gmail = shift @ARGV;
-my $pass_gmail = shift @ARGV;
-my $mailto = $user_gmail;
-my $mailfrom = $user_gmail;
-unless ($user_gmail && $pass_gmail) {
+my %args;
+GetOptions(\%args, qw(
+  help
+  imapdir=s
+  pass=s
+  user=s
+));
+
+my $user_gmail = $args{user};
+my $pass_gmail = $ENV{GMAILPASS} || $args{pass};
+my $mailto = $args{user};
+my $mailfrom = $args{user};
+if (!$user_gmail || !$pass_gmail || $args{help}) {
   die $usage;
 }
+my $imapdir = $args{imapdir} || '[Gmail]/All Mail';
 
 # search for Niantic emails
 
@@ -38,7 +55,8 @@ my $client_imap = Net::IMAP::Client->new(
   port => 993,
 ) or die "could not connect";
 $client_imap->login or die "login failed";
-$client_imap->select('[Gmail]/All Mail');
+$client_imap->select($imapdir);
+print STDERR "logged in as $user_gmail, searching $imapdir\n";
 my $messages = $client_imap->search({
   subject => 'Ingress notification - Entities Destroyed by',
 });
