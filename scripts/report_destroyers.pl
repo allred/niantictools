@@ -18,8 +18,10 @@ command line options:
  --help
  --imapdir   : search a user-defined label/folder instead of All Mail 
  --pass      : supply password, warning, can be seen in ps output!
+ --rloc      : get stats on destroyed portal locations 
+ --rmax      : max number of of emails to process (for debugging)
  --sendemail : sends the report via smtp to the gmail user specified
- --user
+ --user      : your gmail address, also currently the mailto for sendemail
 EOS
 my $epoch_start = time;
 
@@ -35,6 +37,8 @@ GetOptions(\%args, qw(
   help
   imapdir=s
   pass=s
+  rloc=s
+  rmax=s
   sendemail
   user=s
 ));
@@ -69,6 +73,7 @@ my $total_resos_destroyed = 0;
 my $total_links_destroyed = 0;
 my $total_mods_destroyed = 0;
 my $total_emails = 0;
+my %locations_destroyed = ();
 if (defined $summaries && ref $summaries eq 'ARRAY') {
   $total_emails = scalar @$summaries;
 }
@@ -77,14 +82,38 @@ else {
 }
 my $count_processed = 0;
 foreach my $summary (@$summaries) {
+  if ($args{rmax} && $count_processed >= $args{rmax}) { last; }
   my $resos_destroyed_this_summary = 0;
   my $links_destroyed_this_summary = 0;
   my $mods_destroyed_this_summary = 0;
 
-  # get the text part of the email
+  # get the text and html parts of the email
 
-  my $hash_part = $client_imap->get_parts_bodies($summary->uid, ['1']);
+  my $hash_part = $client_imap->get_parts_bodies($summary->uid, ['1', '2']);
   my $body_text = ${$hash_part->{1}};
+  my $body_html;
+  if ($hash_part->{2}) {
+    $body_html = ${$hash_part->{2}};
+  }
+
+  # match the portal location links
+  # TODO: de-hackify these regexes, sloppily brought to you by Sly Fox Pilsner!
+
+  #print Dumper $body_html;
+  if ($args{rloc}) {
+    while ($body_html =~ /<a href=3D"(http.*?intel\?.*?)">(.*?)<.*/gs) {
+      my $href_portal_location = $1;
+      $href_portal_location =~ s/\s+//g;
+      #$href_portal_location =~ s/\s+\=\s+$//gs;
+      $href_portal_location =~ s/==/=/gs;
+      $href_portal_location =~ s/\?=/?/gs;
+      $href_portal_location =~ s/=3D/=/gs;
+      my $description_portal_location = $2;
+      #print Dumper {desc => $description_portal_location, link => $href_portal_location};
+      $locations_destroyed{$href_portal_location}{count}++;
+      $locations_destroyed{$href_portal_location}{description} = $description_portal_location;
+    }
+  }
 
   # this gets the item count from lines like:
   # 2 Resonator(s) destroyed by ...
@@ -111,9 +140,9 @@ foreach my $summary (@$summaries) {
   my $subject = $summary->subject;
   $subject =~ qr/by (.*)$/;
   my $destroyer = $1;
-  $destroyers{$destroyer}{resos} += $resos_destroyed_this_summary;
-  $destroyers{$destroyer}{links} += $links_destroyed_this_summary;
-  $destroyers{$destroyer}{mods} += $mods_destroyed_this_summary;
+  $destroyers{$destroyer}{resos} += $resos_destroyed_this_summary || 0;
+  $destroyers{$destroyer}{links} += $links_destroyed_this_summary || 0;
+  $destroyers{$destroyer}{mods} += $mods_destroyed_this_summary || 0;
   $destroyers{$destroyer}{date_first_notification} ||= $summary->date;
   $destroyers{$destroyer}{date_last_notification} = $summary->date;
 
@@ -130,6 +159,25 @@ my $text_report = <<"EOS";
 [total resos destroyed: $total_resos_destroyed]
 [total links destroyed: $total_links_destroyed]
 [total mods destroyed: $total_mods_destroyed]
+EOS
+
+if ($args{rloc}) {
+  $text_report .= <<"EOS";
+-----------
+[LOCATIONS]
+-----------
+EOS
+
+  my $count_locations_shown = 0;
+  foreach my $location (sort { $locations_destroyed{$b}{count} <=> $locations_destroyed{$a}{count} } keys %locations_destroyed) {
+    if ($count_locations_shown >= $args{rloc}) { next; }
+    $text_report .= "$location $locations_destroyed{$location}{count}\n";
+    $count_locations_shown++;
+  }
+}
+
+
+$text_report .= <<"EOS";
 -----------------------------------
 [DESTROYER RESOS LINKS MODS LATEST]
 -----------------------------------
