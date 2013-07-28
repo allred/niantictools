@@ -10,7 +10,7 @@
 my $usage = <<'EOS';
 
 instructions for install/usage:
- - sudo cpan install Getopt::Long MIME::Lite Net::IMAP::Client
+ - sudo cpan install Email::MIME::Encodings Getopt::Long MIME::Lite Net::IMAP::Client
  - chmod u+x report_destroyers.pl
  - GMAILPASS=yourpassword ./report_destroyers.pl --user youremail@gmail.com
 
@@ -28,6 +28,7 @@ my $epoch_start = time;
 use strict;
 use warnings;
 use Data::Dumper;
+use Email::MIME::Encodings;
 use Getopt::Long;
 use MIME::Lite;
 use Net::IMAP::Client;
@@ -81,6 +82,8 @@ else {
   die "no Niantic emails found in $imapdir";
 }
 my $count_processed = 0;
+my %urls_found = ();
+my %latlngs_found = ();
 foreach my $summary (@$summaries) {
   if ($args{rmax} && $count_processed >= $args{rmax}) { last; }
   my $resos_destroyed_this_summary = 0;
@@ -90,28 +93,45 @@ foreach my $summary (@$summaries) {
   # get the text and html parts of the email
 
   my $hash_part = $client_imap->get_parts_bodies($summary->uid, ['1', '2']);
+
   my $body_text = ${$hash_part->{1}};
-  my $body_html;
+  my $body_html = '';
+
+  # process html part for further data points (URLs, etc) 
+
   if ($hash_part->{2}) {
-    $body_html = ${$hash_part->{2}};
+    my $subpart_html = $summary->get_subpart('2');
+    my $transfer_encoding_content_html = $subpart_html->transfer_encoding;;
+    my $string_html = ${$hash_part->{2}};
+    $body_html = Email::MIME::Encodings::decode($transfer_encoding_content_html, ${$hash_part->{2}});
   }
 
-  # match the portal location links
-  # TODO: de-hackify these regexes, sloppily brought to you by Sly Fox Pilsner!
-
+  # get all URLs in the html part 
   #print Dumper $body_html;
-  if ($args{rloc}) {
-    while ($body_html =~ /<a href=3D"(http.*?intel\?.*?)">(.*?)<.*/gs) {
-      my $href_portal_location = $1;
-      $href_portal_location =~ s/\s+//g;
-      #$href_portal_location =~ s/\s+\=\s+$//gs;
-      $href_portal_location =~ s/==/=/gs;
-      $href_portal_location =~ s/\?=/?/gs;
-      $href_portal_location =~ s/=3D/=/gs;
-      my $description_portal_location = $2;
-      #print Dumper {desc => $description_portal_location, link => $href_portal_location};
-      $locations_destroyed{$href_portal_location}{count}++;
-      $locations_destroyed{$href_portal_location}{description} = $description_portal_location;
+
+  while ($body_html =~ /href="(http.*?)"/gs) {
+    my $url = $1;
+    $urls_found{$url}{count}++;
+    my $lat;
+    my $lng;
+    if ($args{rloc} && $url =~ /intel/) {
+      if ($url =~ /latE6=(\S+)&lngE6=(\S+)&/) { 
+        $lat = $1;
+        $lng = $2;
+      }
+      elsif ($url =~/ll=(\S+),(\S+)&pll=(\S+),(\S+)&/) {
+        $lat = $1;
+        $lng = $2;
+      }
+      if ($lat && $lng) {
+
+        # remove decimal from newer latlongs so new/old keys match 
+
+        $lat =~ s/\.//;
+        $lng =~ s/\.//;
+        $latlngs_found{"$lat|$lng"}{url} = $url;
+        $latlngs_found{"$lat|$lng"}{count}++;
+      }
     }
   }
 
@@ -169,9 +189,12 @@ if ($args{rloc}) {
 EOS
 
   my $count_locations_shown = 0;
-  foreach my $location (sort { $locations_destroyed{$b}{count} <=> $locations_destroyed{$a}{count} } keys %locations_destroyed) {
+  foreach my $latlng (sort { $latlngs_found{$b}{count} <=> $latlngs_found{$a}{count} } keys %latlngs_found) {
+    my $url = $latlngs_found{$latlng}{url};
     if ($count_locations_shown >= $args{rloc}) { next; }
-    $text_report .= "$location $locations_destroyed{$location}{count}\n";
+    if ($url eq 'http://www.ingress.com/intel') { next; }
+    if ($url eq 'http://support.google.com/ingress') { next; }
+    $text_report .= "$url $latlngs_found{$latlng}{count}\n";
     $count_locations_shown++;
   }
 }
