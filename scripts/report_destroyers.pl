@@ -6,6 +6,7 @@
 # TODO:
 # - optimize speed
 # - justify table
+# - send email via gmail?
 
 my $usage = <<'EOS';
 
@@ -18,7 +19,7 @@ command line options:
  --help
  --imapdir   : search a user-defined label/folder instead of All Mail 
  --pass      : supply password, warning, can be seen in ps output!
- --rloc      : get stats on destroyed portal locations 
+ --rloc      : get stats on destroyed portal locations, arg is number of locs 
  --rmax      : max number of of emails to process (for debugging)
  --sendemail : sends the report via smtp to the gmail user specified
  --user      : your gmail address, also currently the mailto for sendemail
@@ -65,9 +66,21 @@ my $client_imap = Net::IMAP::Client->new(
 $client_imap->login or die "login failed";
 $client_imap->select($imapdir);
 print STDERR "logged in as $user_gmail, searching $imapdir\n";
-my $messages = $client_imap->search({
-  subject => 'Ingress notification - Entities Destroyed by',
-});
+my $messages = [];
+
+# search for the various incarnations of destroyer reports
+
+foreach my $hashref_search (
+  {
+    subject => 'Ingress notification - Entities Destroyed by',
+  },
+) {
+  print STDERR "searching $imapdir for '$hashref_search->{subject}'\n";
+  my $messages_search = $client_imap->search($hashref_search);
+#die Dumper $messages_search;
+  push @$messages, @$messages_search;
+}
+
 my $summaries = $client_imap->get_summaries($messages);
 my %destroyers;
 my $total_resos_destroyed = 0;
@@ -101,12 +114,13 @@ foreach my $summary (@$summaries) {
 
   if ($hash_part->{2}) {
     my $subpart_html = $summary->get_subpart('2');
-    my $transfer_encoding_content_html = $subpart_html->transfer_encoding;;
+    my $transfer_encoding_content_html = $subpart_html->transfer_encoding;
     my $string_html = ${$hash_part->{2}};
     $body_html = Email::MIME::Encodings::decode($transfer_encoding_content_html, ${$hash_part->{2}});
   }
 
   # get all URLs in the html part 
+  # get latitude/longitude data from those links
   #print Dumper $body_html;
 
   while ($body_html =~ /href="(http.*?)"/gs) {
@@ -115,10 +129,16 @@ foreach my $summary (@$summaries) {
     my $lat;
     my $lng;
     if ($args{rloc} && $url =~ /intel/) {
+
+      # first gen loc links
+
       if ($url =~ /latE6=(\S+)&lngE6=(\S+)&/) { 
         $lat = $1;
         $lng = $2;
       }
+
+      # second gen loc links
+
       elsif ($url =~/ll=(\S+),(\S+)&pll=(\S+),(\S+)&/) {
         $lat = $1;
         $lng = $2;
@@ -130,6 +150,8 @@ foreach my $summary (@$summaries) {
         $lat =~ s/\.//;
         $lng =~ s/\.//;
         $latlngs_found{"$lat|$lng"}{url} = $url;
+        $latlngs_found{"$lat|$lng"}{firstdate} ||= $summary->date;
+        $latlngs_found{"$lat|$lng"}{lastdate} ||= $summary->date;
         $latlngs_found{"$lat|$lng"}{count}++;
       }
     }
@@ -201,13 +223,13 @@ EOS
 
 
 $text_report .= <<"EOS";
------------------------------------
-[DESTROYER RESOS LINKS MODS LATEST]
------------------------------------
+-----------------------------------------
+[DESTROYER RESOS LINKS MODS LATEST FIRST]
+-----------------------------------------
 EOS
 
 foreach my $destroyer (sort { $destroyers{$b}{resos} <=> $destroyers{$a}{resos} } keys %destroyers) {
-  $text_report .= "$destroyer $destroyers{$destroyer}{resos} $destroyers{$destroyer}{links} $destroyers{$destroyer}{mods} ($destroyers{$destroyer}{date_last_notification})\n";
+  $text_report .= "$destroyer $destroyers{$destroyer}{resos} $destroyers{$destroyer}{links} $destroyers{$destroyer}{mods} ($destroyers{$destroyer}{date_last_notification}) ($destroyers{$destroyer}{date_first_notification})\n";
 }
 my $epoch_end = time;
 my $secs_report_duration = $epoch_end - $epoch_start;
