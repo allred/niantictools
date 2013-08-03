@@ -16,9 +16,10 @@ instructions for install/usage:
  - GMAILPASS=yourpassword ./report_destroyers.pl --user youremail@gmail.com
 
 command line options:
+ --cachefile : supply a path to a write-able file to cache email bodies 
  --help
  --imapdir   : search a user-defined label/folder instead of All Mail 
- --pass      : supply password, warning, can be seen in ps output!
+ --pass      : supply password, obvious warning: can be seen in ps output!
  --rloc      : get stats on destroyed portal locations, arg is number of locs 
  --rmax      : max number of of emails to process (for debugging)
  --sendemail : sends the report via smtp to the gmail user specified
@@ -33,9 +34,11 @@ use Email::MIME::Encodings;
 use Getopt::Long;
 use MIME::Lite;
 use Net::IMAP::Client;
+use Storable qw(store retrieve);
 
 my %args;
 GetOptions(\%args, qw(
+  cachefile=s
   help
   imapdir=s
   pass=s
@@ -74,13 +77,18 @@ foreach my $hashref_search (
   {
     subject => 'Ingress notification - Entities Destroyed by',
   },
+  {
+    from => 'ingress-support@google.com',
+    subject => 'Damage Report',
+  },
 ) {
   print STDERR "searching $imapdir for '$hashref_search->{subject}'\n";
   my $messages_search = $client_imap->search($hashref_search);
-#die Dumper $messages_search;
   push @$messages, @$messages_search;
 }
 
+my $count_messages = scalar @$messages;
+print STDERR "getting summaries for $count_messages emails\n";
 my $summaries = $client_imap->get_summaries($messages);
 my %destroyers;
 my $total_resos_destroyed = 0;
@@ -97,26 +105,67 @@ else {
 my $count_processed = 0;
 my %urls_found = ();
 my %latlngs_found = ();
+my $cache = {};
+if ($args{cachefile} && -r $args{cachefile}) {
+  print STDERR "reading from cachefile $args{cachefile}\n";
+  $cache = retrieve($args{cachefile});
+}
 foreach my $summary (@$summaries) {
   if ($args{rmax} && $count_processed >= $args{rmax}) { last; }
+  my $message_id = $summary->message_id;
   my $resos_destroyed_this_summary = 0;
   my $links_destroyed_this_summary = 0;
   my $mods_destroyed_this_summary = 0;
+  my $destroyer = 'FIXMEUNKNOWN';
 
   # get the text and html parts of the email
 
-  my $hash_part = $client_imap->get_parts_bodies($summary->uid, ['1', '2']);
+  my $body_text;
+  my $body_html;
 
-  my $body_text = ${$hash_part->{1}};
-  my $body_html = '';
+  # try to read from cache
 
-  # process html part for further data points (URLs, etc) 
+  if (
+     $args{cachefile}
+     && $cache->{$message_id}
+     && $cache->{$message_id}->{body_text}
+     && $cache->{$message_id}->{body_html}
+  ) {
+    $body_text = $cache->{$message_id}->{body_text};
+    $body_html = $cache->{$message_id}->{body_html};
+  }
 
-  if ($hash_part->{2}) {
-    my $subpart_html = $summary->get_subpart('2');
-    my $transfer_encoding_content_html = $subpart_html->transfer_encoding;
-    my $string_html = ${$hash_part->{2}};
-    $body_html = Email::MIME::Encodings::decode($transfer_encoding_content_html, ${$hash_part->{2}});
+  # or read from gmail
+
+  else {
+    my $hash_part = $client_imap->get_parts_bodies($summary->uid, ['1', '2']);
+    $body_text = ${$hash_part->{1}};
+    $cache->{$message_id}->{body_text} = $body_text; 
+    $body_html = '';
+
+    # process html part for further data points (URLs, etc) 
+
+    if ($hash_part->{2}) {
+      my $subpart_html = $summary->get_subpart('2');
+      my $transfer_encoding_content_html = $subpart_html->transfer_encoding;
+      my $string_html = ${$hash_part->{2}};
+      $body_html = Email::MIME::Encodings::decode($transfer_encoding_content_html, ${$hash_part->{2}});
+      $cache->{$message_id}->{body_html} = $body_html; 
+    }
+  }
+
+  my $subject = $summary->subject;
+
+  # gen1 emails had destroyer in subject, sigh...
+
+  if ($subject =~ qr/by (.*)$/) {
+    $destroyer = $1;
+  }
+
+  # gen2 emails are sub optimal
+
+  elsif ($body_text =~ qr/by (\S+)/) {
+    $destroyer = $1;
   }
 
   # get all URLs in the html part 
@@ -159,8 +208,9 @@ foreach my $summary (@$summaries) {
 
   # this gets the item count from lines like:
   # 2 Resonator(s) destroyed by ...
+  # and other similar strings
 
-  while ($body_text =~ /(\d+?)\s+Resonator/gs) {
+  while ($body_text =~ /(\d+?)\s+Resonator(\(s\))?\s*(were)?\s*destroy/gs) {
     my $num_resos_destroyed = $1;
     $resos_destroyed_this_summary += $num_resos_destroyed;  
   }
@@ -170,18 +220,23 @@ foreach my $summary (@$summaries) {
   while ($body_text =~ /Your Link has been destroyed/gs) {
     $links_destroyed_this_summary++;
   }
+  while ($body_text =~ /(\d+?)\s+Link(\(s\))?\s*destroy/gs) {
+    $links_destroyed_this_summary += $1;
+  }
 
   # find Mods destroyed
 
-  while ($body_text =~ /(\d+?)\s+Mod/gs) {
+  while ($body_text =~ /(\d+?)\s+Mod(\(s\))?\s*(were)?\s*destroy/gs) {
     $mods_destroyed_this_summary += $1;
   }
-  
-  # grab subject, agent id is the key for destroyer stats
 
-  my $subject = $summary->subject;
-  $subject =~ qr/by (.*)$/;
-  my $destroyer = $1;
+#print Dumper {
+#body => $body_text,
+#rdts => $resos_destroyed_this_summary,
+#mdts => $mods_destroyed_this_summary,
+#ldts => $links_destroyed_this_summary,
+#};
+  
   $destroyers{$destroyer}{resos} += $resos_destroyed_this_summary || 0;
   $destroyers{$destroyer}{links} += $links_destroyed_this_summary || 0;
   $destroyers{$destroyer}{mods} += $mods_destroyed_this_summary || 0;
@@ -193,6 +248,11 @@ foreach my $summary (@$summaries) {
   $total_mods_destroyed += $mods_destroyed_this_summary;
   $count_processed++;
   print STDERR "emails processed: $count_processed/$total_emails resos: $total_resos_destroyed links: $total_links_destroyed mods: $total_mods_destroyed\n";
+}
+
+if ($args{cachefile}) {
+  print STDERR "writing to cachefile $args{cachefile}\n";
+  store $cache, $args{cachefile};
 }
 my $total_destroyers = scalar keys %destroyers;
 
