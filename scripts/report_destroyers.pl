@@ -4,9 +4,11 @@
 # assumes the local mail delivery system will deliver the email report properly
 # also prints the report to stdout
 # TODO:
-# - optimize speed
-# - justify table
+# - optimize speed (cache file did most of that)
+# - justify text table
 # - send email via gmail?
+# - html output
+# - write a file
 
 my $usage = <<'EOS';
 
@@ -16,14 +18,16 @@ instructions for install/usage:
  - GMAILPASS=yourpassword ./report_destroyers.pl --user youremail@gmail.com
 
 command line options:
- --cachefile : supply a path to a write-able file to cache email bodies 
+ --cachefile   : supply a path to a write-able file to cache email bodies 
  --help
- --imapdir   : search a user-defined label/folder instead of All Mail 
- --pass      : supply password, obvious warning: can be seen in ps output!
- --rloc      : get stats on destroyed portal locations, arg is number of locs 
- --rmax      : max number of of emails to process (for debugging)
- --sendemail : sends the report via smtp to the gmail user specified
- --user      : your gmail address, also currently the mailto for sendemail
+ --imapdir     : search a user-defined label/folder instead of All Mail 
+ --mailformat  : html | text (default)
+ --pass        : supply password, obvious warning: can be seen in ps output!
+ --printformat : html | text (default)
+ --rloc        : get stats on destroyed portal locations, arg is number of locs 
+ --rmax        : max number of of emails to process (for debugging)
+ --sendemail   : sends the report via smtp to the gmail user specified
+ --user        : your gmail address, also currently the mailto for sendemail
 EOS
 my $epoch_start = time;
 
@@ -41,7 +45,9 @@ GetOptions(\%args, qw(
   cachefile=s
   help
   imapdir=s
+  mailformat=s
   pass=s
+  printformat=s
   rloc=s
   rmax=s
   sendemail
@@ -75,6 +81,7 @@ my $messages = [];
 
 foreach my $hashref_search (
   {
+    from => 'ingress-support@google.com',
     subject => 'Ingress notification - Entities Destroyed by',
   },
   {
@@ -95,6 +102,7 @@ my $total_resos_destroyed = 0;
 my $total_links_destroyed = 0;
 my $total_mods_destroyed = 0;
 my $total_emails = 0;
+my %email_froms = ();
 my %locations_destroyed = ();
 if (defined $summaries && ref $summaries eq 'ARRAY') {
   $total_emails = scalar @$summaries;
@@ -113,6 +121,8 @@ if ($args{cachefile} && -r $args{cachefile}) {
 foreach my $summary (@$summaries) {
   if ($args{rmax} && $count_processed >= $args{rmax}) { last; }
   my $message_id = $summary->message_id;
+  my $from = $summary->from;
+  $email_froms{$from->[0]->mailbox . '@' . $from->[0]->host}++;
   my $resos_destroyed_this_summary = 0;
   my $links_destroyed_this_summary = 0;
   my $mods_destroyed_this_summary = 0;
@@ -138,6 +148,7 @@ foreach my $summary (@$summaries) {
   # or read from gmail
 
   else {
+    $cache->{$message_id}->{summary} = $summary;
     my $hash_part = $client_imap->get_parts_bodies($summary->uid, ['1', '2']);
     $body_text = ${$hash_part->{1}};
     $cache->{$message_id}->{body_text} = $body_text; 
@@ -170,7 +181,6 @@ foreach my $summary (@$summaries) {
 
   # get all URLs in the html part 
   # get latitude/longitude data from those links
-  #print Dumper $body_html;
 
   while ($body_html =~ /href="(http.*?)"/gs) {
     my $url = $1;
@@ -263,12 +273,28 @@ my $text_report = <<"EOS";
 [total mods destroyed: $total_mods_destroyed]
 EOS
 
+my $html_report = <<"EOH";
+<html>
+<body>
+<table>
+<tr><th align="right">total destroyers</th><td>$total_destroyers</td></tr>
+<tr><th align="right">total resos destroyed</th><td>$total_resos_destroyed</td></tr>
+<tr><th align="right">total links destroyed</th><td>$total_links_destroyed</td></tr>
+<tr><th align="right">total mods destroyed</th><td>$total_mods_destroyed</td></tr>
+</table>
+EOH
+
 if ($args{rloc}) {
   $text_report .= <<"EOS";
 -----------
 [LOCATIONS]
 -----------
 EOS
+
+  $html_report .= <<"EOH";
+<table>
+<tr><th>LOCATIONS</th></tr>
+EOH
 
   my $count_locations_shown = 0;
   foreach my $latlng (sort { $latlngs_found{$b}{count} <=> $latlngs_found{$a}{count} } keys %latlngs_found) {
@@ -277,8 +303,18 @@ EOS
     if ($url eq 'http://www.ingress.com/intel') { next; }
     if ($url eq 'http://support.google.com/ingress') { next; }
     $text_report .= "$url $latlngs_found{$latlng}{count}\n";
+    $html_report .= <<"EOH";
+<tr>
+  <td>$url</td>
+  <td>$latlngs_found{$latlng}{count}</td>
+</tr>
+EOH
     $count_locations_shown++;
   }
+
+$html_report .= <<"EOH";
+</table>
+EOH
 }
 
 
@@ -288,24 +324,70 @@ $text_report .= <<"EOS";
 -----------------------------------------
 EOS
 
+$html_report .= <<"EOH";
+<tr>
+  <th>DESTROYER</th>
+  <th>RESOS</th>
+  <th>LINKS</th>
+  <th>MODS</th>
+  <th>LATEST</th>
+  <th>FIRST</th>
+</tr>
+EOH
+
 foreach my $destroyer (sort { $destroyers{$b}{resos} <=> $destroyers{$a}{resos} } keys %destroyers) {
   $text_report .= "$destroyer $destroyers{$destroyer}{resos} $destroyers{$destroyer}{links} $destroyers{$destroyer}{mods} ($destroyers{$destroyer}{date_last_notification}) ($destroyers{$destroyer}{date_first_notification})\n";
+  $html_report .= <<"EOH";
+<tr>
+  <td>$destroyer</td>
+  <td>$destroyers{$destroyer}{resos}</td>
+  <td>$destroyers{$destroyer}{links}</td>
+  <td>$destroyers{$destroyer}{mods}</td>
+  <td>$destroyers{$destroyer}{date_last_notification}</td>
+  <td>$destroyers{$destroyer}{date_first_notification}</td>
+</tr>
+EOH
 }
+
+$html_report .= <<"EOH";
+</table>
+</html>
+EOH
+
 my $epoch_end = time;
 my $secs_report_duration = $epoch_end - $epoch_start;
 my $mins_report_duration = $secs_report_duration / 60;
 print STDERR "report generated in ${mins_report_duration}m (${secs_report_duration}s)\n";
-print $text_report;
+
+if (!$args{printformat} || $args{printformat} eq 'text') {
+  print $text_report;
+}
+elsif ($args{printformat} eq 'html') {
+  print $html_report;
+}
 
 # send mail
 
 my $mimelite = MIME::Lite->new(
-  Data => $text_report,
   From => $mailfrom,
   Subject => "Destroyers Report: $total_destroyers destroyers, $total_resos_destroyed resos, $total_links_destroyed links, $total_mods_destroyed mods",
   To => $mailto,
-  Type => 'text',
+  Type => 'multipart/mixed',
 );
+
+if (!$args{mailformat} || $args{mailformat} eq 'text') {
+  $mimelite->attach(
+    Type => 'TEXT',
+    Data => $text_report,
+  );
+}
+if ($args{mailformat} && $args{mailformat} eq 'html') {
+  $mimelite->attach(
+    Type => 'text/html',
+    Data => $html_report,
+  );
+}
+
 if ($args{sendemail}) {
   $mimelite->send;
 }
