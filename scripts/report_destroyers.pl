@@ -4,29 +4,30 @@
 # assumes the local mail delivery system will deliver the email report properly
 # also prints the report to stdout
 # TODO:
-# - optimize speed (cache file did most of that)
+# - optimize speed (cache file fixed most of this, was heavily IMAP IO bound)
 # - justify text table
 # - send email via gmail?
-# - html output
-# - write a file
+# - sendemail args should be arbitrary "to" account
+# - output a tabular format for spreadsheet analysis
+# - month by month stats, daily stats?
 
 my $usage = <<'EOS';
 
 instructions for install/usage:
- - sudo cpan install Email::MIME::Encodings Getopt::Long MIME::Lite Net::IMAP::Client
+ - sudo cpan install DateTime::Format::Mail Email::MIME::Encodings Getopt::Long MIME::Lite Net::IMAP::Client Storable
  - chmod u+x report_destroyers.pl
  - GMAILPASS=yourpassword ./report_destroyers.pl --user youremail@gmail.com
 
 command line options:
- --cachefile   : supply a path to a write-able file to cache email bodies 
+ --cachefile   : supply a path to a write-able file to cache email bodies, etc
  --help
- --imapdir     : search a user-defined label/folder instead of All Mail 
+ --imapdir     : search a user-defined label/folder instead of All Mail
  --mailformat  : html | text (default)
  --pass        : supply password, obvious warning: can be seen in ps output!
  --printformat : html | text (default)
- --rloc        : get stats on destroyed portal locations, arg is number of locs 
+ --rloc        : get stats on destroyed portal locations, arg is number of locs
  --rmax        : max number of of emails to process (for debugging)
- --sendemail   : sends the report via smtp to the gmail user specified
+ --sendemail   : sends the report via local smtp (default is --user arg)
  --user        : your gmail address, also currently the mailto for sendemail
 EOS
 my $epoch_start = time;
@@ -34,6 +35,7 @@ my $epoch_start = time;
 use strict;
 use warnings;
 use Data::Dumper;
+use DateTime::Format::Mail;
 use Email::MIME::Encodings;
 use Getopt::Long;
 use MIME::Lite;
@@ -102,6 +104,7 @@ my $total_resos_destroyed = 0;
 my $total_links_destroyed = 0;
 my $total_mods_destroyed = 0;
 my $total_emails = 0;
+my %stats_monthly = ();
 my %email_froms = ();
 my %locations_destroyed = ();
 if (defined $summaries && ref $summaries eq 'ARRAY') {
@@ -118,7 +121,13 @@ if ($args{cachefile} && -r $args{cachefile}) {
   print STDERR "reading from cachefile $args{cachefile}\n";
   $cache = retrieve($args{cachefile});
 }
+
+# iterate through message summaries
+
 foreach my $summary (@$summaries) {
+
+  # stop iterating if we hit rmax
+
   if ($args{rmax} && $count_processed >= $args{rmax}) { last; }
   my $message_id = $summary->message_id;
   my $from = $summary->from;
@@ -165,7 +174,12 @@ foreach my $summary (@$summaries) {
     }
   }
 
+  # now we have summary data, either from gmail or cache
+
   my $subject = $summary->subject;
+  my $date_email = $summary->date;
+  my $obj_datetime = DateTime::Format::Mail->parse_datetime($date_email);
+  my $date_email_ymd = $obj_datetime->ymd('');
 
   # gen1 emails had destroyer in subject, sigh...
 
@@ -173,7 +187,7 @@ foreach my $summary (@$summaries) {
     $destroyer = $1;
   }
 
-  # gen2 emails are sub optimal
+  # gen2 emails are sub optimal, gen3 puts destroyer back but this covers both 
 
   elsif ($body_text =~ qr/by (\S+)/) {
     $destroyer = $1;
@@ -257,7 +271,8 @@ foreach my $summary (@$summaries) {
   $total_links_destroyed += $links_destroyed_this_summary;
   $total_mods_destroyed += $mods_destroyed_this_summary;
   $count_processed++;
-  print STDERR "emails processed: $count_processed/$total_emails resos: $total_resos_destroyed links: $total_links_destroyed mods: $total_mods_destroyed\n";
+  my $date_email_log = $obj_datetime->ymd('');
+  print STDERR "$date_email_log $count_processed/$total_emails r:$total_resos_destroyed l:$total_links_destroyed m:$total_mods_destroyed $destroyer\n";
 }
 
 if ($args{cachefile}) {
@@ -293,7 +308,7 @@ EOS
 
   $html_report .= <<"EOH";
 <table>
-<tr><th>LOCATIONS</th></tr>
+<tr><th colspan="2">LOCATIONS</th></tr>
 EOH
 
   my $count_locations_shown = 0;
