@@ -396,7 +396,7 @@ if (!$args{mailformat} || $args{mailformat} eq 'text') {
     Data => $text_report,
   );
 }
-if ($args{mailformat} && $args{mailformat} eq 'html') {
+elsif ($args{mailformat} eq 'html') {
   $mimelite->attach(
     Type => 'text/html',
     Data => $html_report,
