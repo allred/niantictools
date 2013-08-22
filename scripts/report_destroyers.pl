@@ -152,12 +152,12 @@ foreach my $summary (@$summaries) {
   ) {
     $body_text = $cache->{$message_id}->{body_text};
     $body_html = $cache->{$message_id}->{body_html};
+    $cache->{$message_id}->{summary} = $summary;
   }
 
   # or read from gmail
 
   else {
-    $cache->{$message_id}->{summary} = $summary;
     my $hash_part = $client_imap->get_parts_bodies($summary->uid, ['1', '2']);
     $body_text = ${$hash_part->{1}};
     $cache->{$message_id}->{body_text} = $body_text; 
