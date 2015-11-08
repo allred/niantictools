@@ -3,6 +3,7 @@
 # queries Niantic messages from gmail via IMAP, compiles stats, emails result
 # assumes the local mail delivery system will deliver the email report properly
 # also prints the report to stdout
+# NOTE: running this from the same IP you use for gmail is much easier 
 # TODO:
 # - optimize speed (cache file fixed most of this, was heavily IMAP IO bound)
 # - justify text table
@@ -90,6 +91,10 @@ foreach my $hashref_search (
     from => 'ingress-support@google.com',
     subject => 'Damage Report',
   },
+  {
+    from => 'ingress-support@nianticlabs.com',
+    subject => 'Damage Report',
+  },
 ) {
   print STDERR "searching $imapdir for '$hashref_search->{subject}'\n";
   my $messages_search = $client_imap->search($hashref_search);
@@ -104,8 +109,8 @@ my $total_resos_destroyed = 0;
 my $total_links_destroyed = 0;
 my $total_mods_destroyed = 0;
 my $total_emails = 0;
-my %stats_monthly = ();
 my %email_froms = ();
+my %yymm_activity_data = ();
 my %locations_destroyed = ();
 if (defined $summaries && ref $summaries eq 'ARRAY') {
   $total_emails = scalar @$summaries;
@@ -179,7 +184,9 @@ foreach my $summary (@$summaries) {
   my $subject = $summary->subject;
   my $date_email = $summary->date;
   my $obj_datetime = DateTime::Format::Mail->parse_datetime($date_email);
-  my $date_email_ymd = $obj_datetime->ymd('');
+  my $date_email_ymd = $obj_datetime->ymd('l');
+  my $date_email_yymm = $obj_datetime->year . '-' . $obj_datetime->month;
+  $yymm_activity_data{$date_email_yymm} += 1;
 
   # gen1 emails had destroyer in subject, sigh...
 
@@ -331,6 +338,7 @@ $html_report .= <<"EOH";
 </table>
 EOH
 }
+print Dumper \%yymm_activity_data;
 
 
 $text_report .= <<"EOS";
