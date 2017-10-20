@@ -338,7 +338,7 @@ $html_report .= <<"EOH";
 </table>
 EOH
 }
-print Dumper \%yymm_activity_data;
+#print Dumper \%yymm_activity_data;
 
 
 $text_report .= <<"EOS";
