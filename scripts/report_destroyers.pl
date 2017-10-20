@@ -348,6 +348,7 @@ $text_report .= <<"EOS";
 EOS
 
 $html_report .= <<"EOH";
+<table>
 <tr>
   <th>DESTROYER</th>
   <th>RESOS</th>
