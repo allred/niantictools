@@ -299,10 +299,12 @@ my $html_report = <<"EOH";
 <html>
 <body>
 <table>
+<tbody>
 <tr><th align="right">total destroyers</th><td>$total_destroyers</td></tr>
 <tr><th align="right">total resos destroyed</th><td>$total_resos_destroyed</td></tr>
 <tr><th align="right">total links destroyed</th><td>$total_links_destroyed</td></tr>
 <tr><th align="right">total mods destroyed</th><td>$total_mods_destroyed</td></tr>
+</tbody>
 </table>
 EOH
 
@@ -315,7 +317,10 @@ EOS
 
   $html_report .= <<"EOH";
 <table>
+<thead>
 <tr><th colspan="2">LOCATIONS</th></tr>
+</thead>
+<tbody>
 EOH
 
   my $count_locations_shown = 0;
@@ -335,6 +340,7 @@ EOH
   }
 
 $html_report .= <<"EOH";
+</tbody>
 </table>
 EOH
 }
@@ -349,6 +355,7 @@ EOS
 
 $html_report .= <<"EOH";
 <table>
+<thead>
 <tr>
   <th>DESTROYER</th>
   <th>RESOS</th>
@@ -357,6 +364,8 @@ $html_report .= <<"EOH";
   <th>LATEST</th>
   <th>FIRST</th>
 </tr>
+</thead>
+<tbody>
 EOH
 
 foreach my $destroyer (sort { $destroyers{$b}{resos} <=> $destroyers{$a}{resos} } keys %destroyers) {
@@ -374,6 +383,7 @@ EOH
 }
 
 $html_report .= <<"EOH";
+</tbody>
 </table>
 </html>
 EOH
