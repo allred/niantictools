@@ -20,16 +20,17 @@ instructions for install/usage:
  - GMAILPASS=yourpassword ./report_destroyers.pl --user youremail@gmail.com
 
 command line options:
- --cachefile   : supply a path to a write-able file to cache email bodies, etc
+ --cachefile    : supply a path to a write-able file to cache email bodies, etc
  --help
- --imapdir     : search a user-defined label/folder instead of All Mail
- --mailformat  : html | text (default)
- --pass        : supply password, obvious warning: can be seen in ps output!
- --printformat : html | text (default)
- --rloc        : get stats on destroyed portal locations, arg is number of locs
- --rmax        : max number of of emails to process (for debugging)
- --sendemail   : sends the report via local smtp (default is --user arg)
- --user        : your gmail address, also currently the mailto for sendemail
+ --imapdir      : search a user-defined label/folder instead of All Mail
+ --latestagents : show n latest destroying agents section
+ --mailformat   : html | text (default)
+ --pass         : supply password, obvious warning: can be seen in ps output!
+ --printformat  : html | text (default)
+ --rloc         : get stats on destroyed portal locations, arg is number of locs
+ --rmax         : max number of of emails to process (for debugging)
+ --sendemail    : sends the report via local smtp (default is --user arg)
+ --user         : your gmail address, also currently the mailto for sendemail
 EOS
 my $epoch_start = time;
 
@@ -48,6 +49,7 @@ GetOptions(\%args, qw(
   cachefile=s
   help
   imapdir=s
+  latestagents:i
   mailformat=s
   pass=s
   printformat=s
@@ -273,6 +275,7 @@ foreach my $summary (@$summaries) {
   $destroyers{$destroyer}{mods} += $mods_destroyed_this_summary || 0;
   $destroyers{$destroyer}{date_first_notification} ||= $summary->date;
   $destroyers{$destroyer}{date_last_notification} = $summary->date;
+  $destroyers{$destroyer}{date_last_notification_epoch} = $obj_datetime->epoch;
 
   $total_resos_destroyed += $resos_destroyed_this_summary;
   $total_links_destroyed += $links_destroyed_this_summary;
@@ -308,6 +311,40 @@ my $html_report = <<"EOH";
 </table>
 EOH
 
+if ($args{latestagents}) {
+  $text_report .= <<"EOS";
+---------------
+|LATEST AGENTS|
+---------------
+EOS
+  $html_report .= <<"EOH";
+<table>
+<thead>
+<tr><th colspan="2">LATEST AGENTS</th></tr>
+</thead>
+<tbody>
+EOH
+
+  my $count_latestagents_shown = 0;
+  foreach my $destroyer (sort { $destroyers{$b}{date_last_notification_epoch} <=> $destroyers{$a}{date_last_notification_epoch} } keys %destroyers) {
+    if ($count_latestagents_shown >= $args{latestagents}) { next; }
+    $text_report .= "$destroyer $destroyers{$destroyer}{date_last_notification}\n";
+    $html_report .= <<"EOH";
+<tr>
+  <td>$destroyer</td>
+  <td>$destroyers{$destroyer}{date_last_notification}</td>
+</tr>
+EOH
+    $count_latestagents_shown++;
+  }
+
+  $html_report .= <<"EOH";
+</tbody>
+</table>
+EOH
+}
+
+
 if ($args{rloc}) {
   $text_report .= <<"EOS";
 -----------
@@ -339,7 +376,7 @@ EOH
     $count_locations_shown++;
   }
 
-$html_report .= <<"EOH";
+  $html_report .= <<"EOH";
 </tbody>
 </table>
 EOH
