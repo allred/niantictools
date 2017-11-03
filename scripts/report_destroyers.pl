@@ -347,15 +347,15 @@ EOH
 
 if ($args{rloc}) {
   $text_report .= <<"EOS";
------------
-[LOCATIONS]
------------
+---------------
+[TOP LOCATIONS]
+---------------
 EOS
 
   $html_report .= <<"EOH";
 <table>
 <thead>
-<tr><th colspan="2">LOCATIONS</th></tr>
+<tr><th colspan="2">TOP LOCATIONS</th></tr>
 </thead>
 <tbody>
 EOH
